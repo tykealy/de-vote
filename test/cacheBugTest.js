@@ -1,11 +1,9 @@
-/* global ethers describe before it */
 /* eslint-disable prefer-const */
 
-const { deployDiamond } = require('../scripts/deploy.js')
-
-const { FacetCutAction } = require('../scripts/libraries/diamond.js')
-
-const { assert } = require('chai')
+import hre from 'hardhat'
+import { deployDiamond } from '../scripts/deploy.js'
+import { FacetCutAction } from '../scripts/libraries/diamond.js'
+import { assert } from 'chai'
 
 // The diamond example comes with 8 function selectors
 // [cut, loupe, loupe, loupe, loupe, erc165, transferOwnership, owner]
@@ -13,6 +11,7 @@ const { assert } = require('chai')
 // selector slot array, so we'll fill up a new slot with
 // things, and have a fresh row to work with.
 describe('Cache bug test', async () => {
+  let ethers
   let diamondLoupeFacet
   let test1Facet
   const ownerSel = '0x8da5cb5b'
@@ -30,6 +29,7 @@ describe('Cache bug test', async () => {
   const sel10 = '0xcbb835fb' // fills up slot 2
 
   before(async function () {
+    ({ ethers } = await hre.network.connect());
     let tx
     let receipt
 
@@ -52,16 +52,16 @@ describe('Cache bug test', async () => {
     diamondLoupeFacet = await ethers.getContractAt('DiamondLoupeFacet', diamondAddress)
     const Test1Facet = await ethers.getContractFactory('Test1Facet')
     test1Facet = await Test1Facet.deploy()
-    await test1Facet.deployed()
+    await test1Facet.waitForDeployment()
 
     // add functions
     tx = await diamondCutFacet.diamondCut([
       {
-        facetAddress: test1Facet.address,
+        facetAddress: test1Facet.target,
         action: FacetCutAction.Add,
         functionSelectors: selectors
       }
-    ], ethers.constants.AddressZero, '0x', { gasLimit: 800000 })
+    ], ethers.ZeroAddress, '0x', { gasLimit: 800000 })
     receipt = await tx.wait()
     if (!receipt.status) {
       throw Error(`Diamond upgrade failed: ${tx.hash}`)
@@ -76,11 +76,11 @@ describe('Cache bug test', async () => {
     ]
     tx = await diamondCutFacet.diamondCut([
       {
-        facetAddress: ethers.constants.AddressZero,
+        facetAddress: ethers.ZeroAddress,
         action: FacetCutAction.Remove,
         functionSelectors: selectors
       }
-    ], ethers.constants.AddressZero, '0x', { gasLimit: 800000 })
+    ], ethers.ZeroAddress, '0x', { gasLimit: 800000 })
     receipt = await tx.wait()
     if (!receipt.status) {
       throw Error(`Diamond upgrade failed: ${tx.hash}`)
@@ -89,7 +89,7 @@ describe('Cache bug test', async () => {
 
   it('should not exhibit the cache bug', async () => {
     // Get the test1Facet's registered functions
-    let selectors = await diamondLoupeFacet.facetFunctionSelectors(test1Facet.address)
+    let selectors = await diamondLoupeFacet.facetFunctionSelectors(test1Facet.target)
 
     // Check individual correctness
     assert.isTrue(selectors.includes(sel0), 'Does not contain sel0')

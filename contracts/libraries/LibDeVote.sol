@@ -1,42 +1,70 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-import { LibDiamond } from  "../libraries/LibDiamond.sol";
+
+import { LibDiamond } from "../libraries/LibDiamond.sol";
 
 library LibDeVote {
-
     bytes32 constant DEVOTE_STORAGE_POSITION = keccak256("diamond.standard.devote.storage");
-    enum Status {  Active, Closed, Anchored }
+
+    enum Status { Active, Closed, Anchored }
+
+    // -------- Errors --------
+    error ErrBadWindow();
+    error ErrPollExists(uint256 id);
+    error ErrPollNotFound(uint256 id);
+    error ErrPollNotActive(uint256 id);
+    error ErrPollAlreadyClosed(uint256 id);
+    error ErrPollAlreadyAnchored(uint256 id);
+    error ErrTooEarly(uint256 nowTs, uint256 endTs);
+    error ErrEmptyResultHash();
+    error ErrEmptyMetaURI();
 
     struct Poll{
-        bytes32 eligibleRoot;  // fixed allowlist fingerprint
-        uint64  start;         // voting opens
-        uint64  end;           // voting closes
-        string  metaURI;       // IPFS CID for human-readable details
-        bytes32 resultHash;    // keccak256(votes.jsonl || 0x1e || tally.json)
-        Status status;
+        bytes32 eligibleRoot;   // allowlist fingerprint
+        uint64  start;          // metadata window (enforced at anchor)
+        uint64  end;
+        string  metaURI;        // IPFS CID
+        bytes32 resultHash;     // keccak256(votes.jsonl || 0x1e || tally.json)
+        Status  status;         // Active | Closed | Anchored
+        address creator;        // existence sentinel; also useful for audit
     }
 
     struct DeVoteStorage {
-        mapping(uint256 =>Poll) polls;
+        mapping(uint256 => Poll) polls;
     }
 
-    event PollCreated(uint256 id, bytes32 eligibleRoot, uint64 start, uint64 end, string metaURI);
-    event PollAnchored(uint256 id, bytes32 resultHash);
-    event PollClosed(uint256 id);
+    // -------- Events --------
+    event PollCreated(
+        uint256 indexed id,
+        bytes32 indexed eligibleRoot,
+        uint64 start,
+        uint64 end,
+        address indexed creator,
+        string metaURI
+    );
+    event PollAnchored(uint256 indexed id, bytes32 resultHash);
+    event PollClosed(uint256 indexed id);
 
     function deVoteStorage() internal pure returns (DeVoteStorage storage ds) {
         bytes32 position = DEVOTE_STORAGE_POSITION;
-        // assigns struct storage slot to the storage position
-        assembly {
-            ds.slot := position
-        }
+        assembly { ds.slot := position }
     }
 
-    function createPoll( uint256 id, bytes32 eligibleRoot, uint64 start,uint64 end, string memory metaURI ) internal {
+    // -------- Create --------
+    function createPoll(
+        uint256 id,
+        bytes32 eligibleRoot,
+        uint64 start,
+        uint64 end,
+        string memory metaURI
+    ) internal {
         LibDiamond.enforceIsContractOwner();
-        require(start < end, "bad window");
+
+        if (start >= end) revert ErrBadWindow();
+        if (bytes(metaURI).length == 0) revert ErrEmptyMetaURI();
+
         DeVoteStorage storage ds = deVoteStorage();
-        require(ds.polls[id].end == 0, "poll exists");
+        if (ds.polls[id].creator != address(0)) revert ErrPollExists(id);
 
         ds.polls[id] = Poll({
             eligibleRoot: eligibleRoot,
@@ -44,31 +72,54 @@ library LibDeVote {
             end: end,
             metaURI: metaURI,
             resultHash: bytes32(0),
-            status: Status.Active
+            status: Status.Active,
+            creator: msg.sender
         });
-        emit PollCreated(id, eligibleRoot, start, end, metaURI);
+
+        emit PollCreated(id, eligibleRoot, start, end, msg.sender, metaURI);
     }
 
-    function anchorResult(uint256 id, bytes32 _resultHash) internal{
+    // -------- Anchor (finalize) --------
+    function anchorResult(uint256 id, bytes32 _resultHash) internal {
         LibDiamond.enforceIsContractOwner();
+
         DeVoteStorage storage ds = deVoteStorage();
-        require(ds.polls[id].status == Status.Active, "poll not active");
-        ds.polls[id].resultHash = _resultHash;
-        ds.polls[id].status = Status.Anchored;
+        Poll storage p = ds.polls[id];
+
+        if (p.creator == address(0)) revert ErrPollNotFound(id);
+        if (p.status == Status.Closed) revert ErrPollAlreadyClosed(id);
+        if (p.status == Status.Anchored) revert ErrPollAlreadyAnchored(id);
+        if (_resultHash == bytes32(0)) revert ErrEmptyResultHash();
+
+        // Enforce that anchoring can't happen before configured end
+        if (block.timestamp < p.end) revert ErrTooEarly(block.timestamp, p.end);
+
+        p.resultHash = _resultHash;
+        p.status = Status.Anchored;
+
         emit PollAnchored(id, _resultHash);
     }
 
-    function getPoll(uint256 id ) internal view returns(Poll memory poll){
+    // -------- Read --------
+    function getPoll(uint256 id) internal view returns (Poll memory poll) {
         DeVoteStorage storage ds = deVoteStorage();
-        
-        return ds.polls[id];
+        poll = ds.polls[id];
+        if (poll.creator == address(0)) revert ErrPollNotFound(id);
     }
 
-    function closePoll(uint256 id) internal{
+    // -------- Close (invalidate) --------
+    function closePoll(uint256 id) internal {
         LibDiamond.enforceIsContractOwner();
+
         DeVoteStorage storage ds = deVoteStorage();
-        require(ds.polls[id].status == Status.Active, "poll not active");
-        ds.polls[id].status = Status.Closed;
+        Poll storage p = ds.polls[id];
+
+        if (p.creator == address(0)) revert ErrPollNotFound(id);
+        if (p.status != Status.Active) revert ErrPollNotActive(id);
+        // No time check here: "Closed" = terminated/invalid any time before anchoring
+
+        p.status = Status.Closed;
+
         emit PollClosed(id);
     }
 }

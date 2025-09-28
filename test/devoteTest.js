@@ -73,11 +73,11 @@ describe('DeVoteTest', async () => {
 
   describe('Poll Management', () => {
     it('should anchor a result successfully', async () => {
-      // Create a fresh poll for this test
+      // Create a fresh poll for this test with end time in the past
       const pollId = Math.floor(Math.random() * 1000000) + 100
       const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
-      const start = Math.floor(Date.now() / 1000)
-      const end = start + 3600
+      const start = Math.floor(Date.now() / 1000) - 7200 // 2 hours ago
+      const end = start + 3600 // 1 hour ago (in the past)
       const metaURI = 'QmTestPoll'
       
       await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
@@ -89,6 +89,49 @@ describe('DeVoteTest', async () => {
       const poll = await devote.getPoll(pollId)
       assert.equal(poll.resultHash, resultHash)
       assert.equal(poll.status, 2) // Status.Anchored
+    })
+
+    it('should fail to anchor result before poll end time', async () => {
+      // Create a fresh poll with future end time
+      const pollId = Math.floor(Math.random() * 1000000) + 150
+      const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
+      const start = Math.floor(Date.now() / 1000)
+      const end = start + 3600 // 1 hour in the future
+      const metaURI = 'QmTestPoll'
+      
+      await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
+
+      const resultHash = '0xabcdef1234567890123456789012345678901234567890123456789012345678'
+
+      // Try to anchor before end time - should fail
+      let errorOccurred = false
+      try {
+        await devote.anchorResult(pollId, resultHash)
+      } catch (error) {
+        errorOccurred = true
+      }
+      expect(errorOccurred).to.be.true
+    })
+
+    it('should fail to anchor with empty result hash', async () => {
+      // Create a fresh poll with past end time
+      const pollId = Math.floor(Math.random() * 1000000) + 160
+      const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
+      const start = Math.floor(Date.now() / 1000) - 7200
+      const end = start + 3600
+      const metaURI = 'QmTestPoll'
+      
+      await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
+
+      const emptyResultHash = '0x0000000000000000000000000000000000000000000000000000000000000000'
+
+      let errorOccurred = false
+      try {
+        await devote.anchorResult(pollId, emptyResultHash)
+      } catch (error) {
+        errorOccurred = true
+      }
+      expect(errorOccurred).to.be.true
     })
 
     it('should close a poll successfully', async () => {
@@ -111,7 +154,7 @@ describe('DeVoteTest', async () => {
       // Create a fresh poll for this test
       const pollId = Math.floor(Math.random() * 1000000) + 300
       const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
-      const start = Math.floor(Date.now() / 1000)
+      const start = Math.floor(Date.now() / 1000) - 7200
       const end = start + 3600
       const metaURI = 'QmTestPoll'
       
@@ -157,16 +200,70 @@ describe('DeVoteTest', async () => {
   })
 
   describe('Poll Retrieval', () => {
-    it('should return empty poll for non-existent ID', async () => {
+    it('should fail to get non-existent poll', async () => {
       const nonExistentId = 999999
-      const poll = await devote.getPoll(nonExistentId)
       
-      assert.equal(poll.eligibleRoot, '0x0000000000000000000000000000000000000000000000000000000000000000')
-      assert.equal(poll.start, 0)
-      assert.equal(poll.end, 0)
-      assert.equal(poll.metaURI, '')
-      assert.equal(poll.resultHash, '0x0000000000000000000000000000000000000000000000000000000000000000')
-      assert.equal(poll.status, 0)
+      let errorOccurred = false
+      try {
+        await devote.getPoll(nonExistentId)
+      } catch (error) {
+        errorOccurred = true
+      }
+      expect(errorOccurred).to.be.true
+    })
+  })
+
+  describe('Convenience Functions', () => {
+    it('should return poll status correctly', async () => {
+      // Create a poll
+      const pollId = Math.floor(Math.random() * 1000000) + 500
+      const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
+      const start = Math.floor(Date.now() / 1000)
+      const end = start + 3600
+      const metaURI = 'QmTestStatus'
+      
+      await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
+      
+      const status = await devote.status(pollId)
+      assert.equal(status, 0) // Status.Active
+    })
+
+    it('should return poll fields as tuple', async () => {
+      // Create a poll
+      const pollId = Math.floor(Math.random() * 1000000) + 600
+      const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
+      const start = Math.floor(Date.now() / 1000)
+      const end = start + 3600
+      const metaURI = 'QmTestFields'
+      
+      await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
+      
+      const fields = await devote.getPollFields(pollId)
+      assert.equal(fields[0], eligibleRoot) // eligibleRoot
+      assert.equal(fields[1], start) // start
+      assert.equal(fields[2], end) // end  
+      assert.equal(fields[3], metaURI) // metaURI
+      assert.equal(fields[4], '0x0000000000000000000000000000000000000000000000000000000000000000') // resultHash
+      assert.equal(fields[5], 0) // status (Active)
+      assert.equal(fields[6], owner.address) // creator
+    })
+  })
+
+  describe('Input Validation', () => {
+    it('should fail to create poll with empty metaURI', async () => {
+      const pollId = Math.floor(Math.random() * 1000000) + 700
+      const eligibleRoot = '0x1234567890123456789012345678901234567890123456789012345678901234'
+      const start = Math.floor(Date.now() / 1000)
+      const end = start + 3600
+      const metaURI = '' // Empty string
+
+      let errorOccurred = false
+      try {
+        await devote.createPoll(pollId, eligibleRoot, start, end, metaURI)
+      } catch (error) {
+        errorOccurred = true
+      }
+      expect(errorOccurred).to.be.true
     })
   })
 

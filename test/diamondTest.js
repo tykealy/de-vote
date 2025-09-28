@@ -14,6 +14,7 @@ describe('DiamondTest', async function () {
   let diamondCutFacet
   let diamondLoupeFacet
   let ownershipFacet
+  let devoteFacet
   let tx
   let receipt
   let result
@@ -25,14 +26,15 @@ describe('DiamondTest', async function () {
     diamondCutFacet = await ethers.getContractAt('DiamondCutFacet', diamondAddress)
     diamondLoupeFacet = await ethers.getContractAt('DiamondLoupeFacet', diamondAddress)
     ownershipFacet = await ethers.getContractAt('OwnershipFacet', diamondAddress)
+    devoteFacet = await ethers.getContractAt('DeVoteFacet', diamondAddress)
   })
 
-  it('should have three facets -- call to facetAddresses function', async () => {
+  it('should have four facets -- call to facetAddresses function', async () => {
     for (const address of await diamondLoupeFacet.facetAddresses()) {
       addresses.push(address)
     }
 
-    assert.equal(addresses.length, 3)
+    assert.equal(addresses.length, 4)
   })
 
   it('facets should have the right function selectors -- call to facetFunctionSelectors function', async () => {
@@ -44,6 +46,9 @@ describe('DiamondTest', async function () {
     assert.sameMembers(result, selectors)
     selectors = getSelectors(ownershipFacet)
     result = await diamondLoupeFacet.facetFunctionSelectors(addresses[2])
+    assert.sameMembers(result, selectors)
+    selectors = getSelectors(devoteFacet)
+    result = await diamondLoupeFacet.facetFunctionSelectors(addresses[3])
     assert.sameMembers(result, selectors)
   })
 
@@ -95,7 +100,7 @@ describe('DiamondTest', async function () {
   it('should replace supportsInterface function', async () => {
     const Test1Facet = await ethers.getContractFactory('Test1Facet')
     const selectors = getSelectors(Test1Facet).get(['supportsInterface(bytes4)'])
-    const testFacetAddress = addresses[3]
+    const testFacetAddress = addresses[4]
     tx = await diamondCutFacet.diamondCut(
       [{
         facetAddress: testFacetAddress,
@@ -147,7 +152,7 @@ describe('DiamondTest', async function () {
     if (!receipt.status) {
       throw Error(`Diamond upgrade failed: ${tx.hash}`)
     }
-    result = await diamondLoupeFacet.facetFunctionSelectors(addresses[4])
+    result = await diamondLoupeFacet.facetFunctionSelectors(addresses[5])
     assert.sameMembers(result, getSelectors(test2Facet).get(functionsToKeep))
   })
 
@@ -166,7 +171,7 @@ describe('DiamondTest', async function () {
     if (!receipt.status) {
       throw Error(`Diamond upgrade failed: ${tx.hash}`)
     }
-    result = await diamondLoupeFacet.facetFunctionSelectors(addresses[3])
+    result = await diamondLoupeFacet.facetFunctionSelectors(addresses[4])
     assert.sameMembers(result, getSelectors(test1Facet).get(functionsToKeep))
   })
 
@@ -214,12 +219,17 @@ describe('DiamondTest', async function () {
         functionSelectors: getSelectors(ownershipFacet)
       },
       {
-        facetAddress: addresses[3],
+        facetAddress: addresses[3], // DeVoteFacet - this was missing!
+        action: FacetCutAction.Add,
+        functionSelectors: getSelectors(devoteFacet)
+      },
+      {
+        facetAddress: addresses[4], // Test1Facet (was addresses[3])
         action: FacetCutAction.Add,
         functionSelectors: getSelectors(Test1Facet)
       },
       {
-        facetAddress: addresses[4],
+        facetAddress: addresses[5], // Test2Facet (was addresses[4])
         action: FacetCutAction.Add,
         functionSelectors: getSelectors(Test2Facet)
       }
@@ -231,18 +241,20 @@ describe('DiamondTest', async function () {
     }
     const facets = await diamondLoupeFacet.facets()
     const facetAddresses = await diamondLoupeFacet.facetAddresses()
-    assert.equal(facetAddresses.length, 5)
-    assert.equal(facets.length, 5)
+    assert.equal(facetAddresses.length, 6)
+    assert.equal(facets.length, 6)
     assert.sameMembers(facetAddresses, addresses)
     assert.equal(facets[0][0], facetAddresses[0], 'first facet')
     assert.equal(facets[1][0], facetAddresses[1], 'second facet')
     assert.equal(facets[2][0], facetAddresses[2], 'third facet')
     assert.equal(facets[3][0], facetAddresses[3], 'fourth facet')
     assert.equal(facets[4][0], facetAddresses[4], 'fifth facet')
+    assert.equal(facets[5][0], facetAddresses[5], 'sixth facet')
     assert.sameMembers(facets[findAddressPositionInFacets(addresses[0], facets)][1], getSelectors(diamondCutFacet))
     assert.sameMembers(facets[findAddressPositionInFacets(addresses[1], facets)][1], diamondLoupeFacetSelectors)
     assert.sameMembers(facets[findAddressPositionInFacets(addresses[2], facets)][1], getSelectors(ownershipFacet))
-    assert.sameMembers(facets[findAddressPositionInFacets(addresses[3], facets)][1], getSelectors(Test1Facet))
-    assert.sameMembers(facets[findAddressPositionInFacets(addresses[4], facets)][1], getSelectors(Test2Facet))
+    assert.sameMembers(facets[findAddressPositionInFacets(addresses[3], facets)][1], getSelectors(devoteFacet))
+    assert.sameMembers(facets[findAddressPositionInFacets(addresses[4], facets)][1], getSelectors(Test1Facet))
+    assert.sameMembers(facets[findAddressPositionInFacets(addresses[5], facets)][1], getSelectors(Test2Facet))
   })
 })

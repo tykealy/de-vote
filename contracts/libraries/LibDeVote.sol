@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+import { LibDiamond } from  "../libraries/LibDiamond.sol";
 
 library LibDeVote {
 
@@ -31,7 +32,8 @@ library LibDeVote {
         }
     }
 
-    function createPoll( uint256 id, bytes32 eligibleRoot, uint64 start,uint64 end, string calldata metaURI ) internal {
+    function createPoll( uint256 id, bytes32 eligibleRoot, uint64 start,uint64 end, string memory metaURI ) internal {
+        LibDiamond.enforceIsContractOwner();
         require(start < end, "bad window");
         DeVoteStorage storage ds = deVoteStorage();
         require(ds.polls[id].end == 0, "poll exists");
@@ -48,6 +50,7 @@ library LibDeVote {
     }
 
     function anchorResult(uint256 id, bytes32 _resultHash) internal{
+        LibDiamond.enforceIsContractOwner();
         DeVoteStorage storage ds = deVoteStorage();
         require(ds.polls[id].status == Status.Active, "poll not active");
         ds.polls[id].resultHash = _resultHash;
@@ -62,6 +65,7 @@ library LibDeVote {
     }
 
     function closePoll(uint256 id) internal{
+        LibDiamond.enforceIsContractOwner();
         DeVoteStorage storage ds = deVoteStorage();
         require(ds.polls[id].status == Status.Active, "poll not active");
         ds.polls[id].status = Status.Closed;

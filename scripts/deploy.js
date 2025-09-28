@@ -31,7 +31,8 @@ async function deployDiamond () {
   console.log('Deploying facets')
   const FacetNames = [
     'DiamondLoupeFacet',
-    'OwnershipFacet'
+    'OwnershipFacet',
+    'DeVoteFacet'
   ]
   const cut = []
   for (const FacetName of FacetNames) {
@@ -61,18 +62,45 @@ async function deployDiamond () {
     throw Error(`Diamond upgrade failed: ${tx.hash}`)
   }
   console.log('Completed diamond cut')
-  return diamond.target
+  // return diamond.target
+
+
+  // devote = await ethers.getContractFactory('DeVoteFacet');
+  // const devote = await devote.deploy();
+  // await devote.waitForDeployment();
+  // console.log('DeVoteFacet deployed:', devote.target);
+
+  // devoteTx = await diamondCut.diamondCut([{
+  //   facetAddress: devote.target,
+  //   action: FacetCutAction.Add,
+  //   functionSelectors: getSelectors(devote).filter(sel => typeof sel === 'string')
+  // }], ethers.ZeroAddress, [])
+  // console.log('devote cut tx: ', devoteTx.hash)
+
+  const devote = await ethers.getContractAt('DeVoteFacet', diamond.target)
+  await devote.createPoll(1, '0x1234567890123456789012345678901234567890123456789012345678901234', 0, 1, 'test')
+  console.log('DeVoteFacet created poll: ', await devote.getPoll(1))
+
+  await devote.anchorResult(1, '0x1234567890123456789012345678901234567890123456789012345678901234')
+  console.log('DeVoteFacet anchored result: ', await devote.getPoll(1))
+
+  // await devote.closePoll(1)
+  // console.log('DeVoteFacet closed poll: ', await devote.getPoll(1))
 }
+
+deployDiamond()
+
+
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
-if (import.meta.url === import.meta.resolve(process.argv[1])) {
-  deployDiamond()
-    .then(() => process.exit(0))
-    .catch(error => {
-      console.error(error)
-      process.exit(1)
-    })
-}
+// if (import.meta.url === import.meta.resolve(process.argv[1])) {
+//   deployDiamond()
+//     .then(() => process.exit(0))
+//     .catch(error => {
+//       console.error(error)
+//       process.exit(1)
+//     })
+// }
 
 export { deployDiamond }
